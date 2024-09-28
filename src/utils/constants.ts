@@ -1,4 +1,5 @@
 import { Dimensions } from "react-native";
+import { MergeAnimType } from "./types";
 
 export const { height: SH, width: SW } = Dimensions.get("screen");
 export const { height: WH, width: WW } = Dimensions.get("window");
@@ -42,3 +43,7 @@ export const getColor = (n: keyof typeof TILE_COLOR) => TILE_COLOR[n]
 export const clone = (data: any) => {
     return JSON.parse(JSON.stringify(data));
 }
+
+export const animObj: MergeAnimType = { isMerging: 0, x: 0, y: 0 }
+
+export const WIN_VALUE = 2048

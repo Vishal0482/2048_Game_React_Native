@@ -53,7 +53,7 @@ const Home = (props: HomeProps) => {
             </View>
             <View style={[styles.imageContainer, grid === 6 && styles.active]}>
                 <TouchableOpacity hitSlop={5} activeOpacity={0.9} onPress={onPressSix}>
-                    <Image resizeMode='contain' source={IMAGE.Five} style={styles.image} />
+                    <Image resizeMode='contain' source={IMAGE.Six} style={styles.image} />
                     <Text style={styles.text}>6X6</Text>
                 </TouchableOpacity>
             </View>

@@ -1,6 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { clone, COLORS, SW } from '../../utils/constants'
+import { animObj, clone, COLORS, SW, WIN_VALUE } from '../../utils/constants'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { direction } from '../../utils/enum'
 import Cell from '../../components/Cell'
@@ -9,17 +9,52 @@ import HomeIcon from '../../assets/icons/HomeIcon'
 import UndoIcon from '../../assets/icons/UndoIcon'
 import ReloadIcon from '../../assets/icons/ReloadIcon'
 import { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { RootStack } from '../../utils/types'
+import { MergeAnimType, RootStack } from '../../utils/types'
 
 type GameProps = NativeStackScreenProps<RootStack, 'Game'>
 
 const Game = (props: GameProps) => {
     const n = props?.route?.params?.n ?? 4;
     const [matrix, setMatirx] = useState<number[][]>(Array.from({ length: n }, () => Array(n).fill(0)));
+    const [matrixMarging, setMatirxMarging] = useState<MergeAnimType[][]>(Array.from({ length: n }, () => Array(n).fill(animObj)));
     const [score, setScore] = useState<number>(0);
     const [highScore, setHighScore] = useState<number>(0);
     const directionRef = useRef(direction.NONE);
     const firstTimeRef = useRef<boolean>(true);
+    const lastStateMatrixRef = useRef<number[][]>([]);
+    const lastScoreRef = useRef({ score: 0, highScore: 0 });
+    const maxReachedValueRef = useRef(0);
+
+    const showPopups = (value: number) => {
+        if (value === WIN_VALUE && value > maxReachedValueRef.current) {
+            Alert.alert("congratulations 🎉, You won!", "Do you want to restart?", [
+                { text: 'Continue', style: 'default' },
+                { text: 'Restart', onPress: () => setMatirx(reset), style: 'destructive' },
+            ])
+        } else if (value === 256 && value > maxReachedValueRef.current) {
+            Alert.alert("Well done!", "You reached to 128.", [
+                { text: 'Continue', style: 'default' },
+            ])
+        }
+        else if (value === 512 && value > maxReachedValueRef.current) {
+            Alert.alert("Well done!", "You reached to 512.", [
+                { text: 'Continue', style: 'default' },
+            ])
+        }
+        else if (value === 1024 && value > maxReachedValueRef.current) {
+            Alert.alert("Well done!", "You reached to 1024.", [
+                { text: 'Continue', style: 'default' },
+            ])
+        }
+
+        if (value > maxReachedValueRef.current) {
+            maxReachedValueRef.current = value
+        }
+    }
+
+    const showPopupsWithDelay = (value: number) => {
+        setTimeout(() => showPopups(value), 100)
+    }
 
     const goToHome = () => {
         props?.navigation?.navigate('Home')
@@ -49,13 +84,16 @@ const Game = (props: GameProps) => {
     }
 
     const onPressUndo = () => {
-        Alert.alert('Coming soon..')
+        if (lastStateMatrixRef.current) {
+            setMatirx(lastStateMatrixRef.current);
+            setHighScore(lastScoreRef.current.highScore)
+            setScore(lastScoreRef.current.score)
+        }
     }
 
     const scoreHandler = (s: number) => {
         let temp = score + s;
         setScore(temp);
-        console.log("temp > highScore", temp > highScore)
         if (temp > highScore) {
             setHighScore(temp);
             // TODO: Store high score in mmkv
@@ -64,15 +102,12 @@ const Game = (props: GameProps) => {
     }
 
     const reset = () => {
-        // scoreHandler();
+        setScore(0)
         const temp = Array.from({ length: n }, () => Array(n).fill(0));
         const i1 = getIndexForEmpty()
         const i2 = getIndexForEmpty()
         temp[i1.x][i1.y] = getNumber()
         temp[i2.x][i2.y] = getNumber()
-        // if (i1.x === i2.x || i1.y === i2.y) {
-        //     Alert.alert("Same value useLayoutEffect", `${i1.x} | ${i2.x} | ${i1.y} |  ${i2.y}`)
-        // }
         return temp
     }
 
@@ -99,16 +134,22 @@ const Game = (props: GameProps) => {
         return clone(temp)
     }
 
-    const swipe = (d: direction) => {
+    const swipe = useCallback((d: direction) => {
+        let addNew = false
         if (d === direction.LEFT || d === direction.RIGHT) {
             const temp = clone(matrix);
+            const tempMerge: MergeAnimType[][] = clone(matrixMarging);
             for (let i = 0; i < temp.length; i++) {
-                const row = temp[i];
+                const row = clone(temp[i]);
                 const nonZero = row?.filter((e: number) => e > 0);
                 if (d === direction.LEFT) {
                     // First swipe all to same direction
                     temp[i] = [...nonZero, ...Array.from({ length: row?.length - nonZero?.length }, () => 0)]
                     const newRow = temp[i];
+                    // check if row is not changed than add new tile
+                    if (JSON.stringify(row) !== JSON.stringify(newRow)) {
+                        addNew = true
+                    }
                     // Merge same tile at first position and change second position to 0
                     for (let j = 0; j < newRow.length; j++) {
                         if (newRow[j] > 0 && j < newRow?.length - 1) {
@@ -116,6 +157,8 @@ const Game = (props: GameProps) => {
                                 temp[i][j] = newRow[j] * 2
                                 temp[i][j + 1] = 0
                                 scoreHandler(newRow[j])
+                                tempMerge[i][j].isMerging = 1
+                                showPopupsWithDelay(temp[i][j])
                             }
                         }
                     }
@@ -128,6 +171,10 @@ const Game = (props: GameProps) => {
                     // First swipe all to same direction
                     temp[i] = [...Array.from({ length: row?.length - nonZero?.length }, () => 0), ...nonZero]
                     const newRow = temp[i];
+                    // check if row is not changed than add new tile
+                    if (JSON.stringify(row) !== JSON.stringify(newRow)) {
+                        addNew = true
+                    }
                     // Merge same tile at first position and change second position to 0
                     for (let j = newRow.length - 1; j >= 0; j--) {
                         if (newRow[j] > 0 && j > 0) {
@@ -135,6 +182,8 @@ const Game = (props: GameProps) => {
                                 temp[i][j] = newRow[j] * 2
                                 temp[i][j - 1] = 0
                                 scoreHandler(newRow[j])
+                                tempMerge[i][j].isMerging = 1
+                                showPopupsWithDelay(temp[i][j])
                             }
                         }
                     }
@@ -145,21 +194,33 @@ const Game = (props: GameProps) => {
                 }
 
             }
-            setMatirx(clone(addTile(temp)))
+            if (addNew) {
+                setMatirx(clone(addTile(temp)))
+            } else {
+                setMatirx(clone(temp))
+            }
+            // setMatirxMarging(clone(tempMerge))
         } else if (d === direction.UP || d === direction.DOWN) {
             const temp = clone(matrix);
+            const tempMerge: MergeAnimType[][] = clone(matrixMarging);
             for (let i = 0; i < temp[0].length; i++) {
                 const col = temp.map((row: number[]) => row[i]);
                 const nonZero = col?.filter((e: number) => e > 0);
                 let newRow: number[] = []
                 if (d === direction.UP) {
                     const tempRow = [...nonZero, ...Array.from({ length: col?.length - nonZero?.length }, () => 0)]
+                    // check if row is not changed than add new tile
+                    if (JSON.stringify(col) !== JSON.stringify(tempRow)) {
+                        addNew = true
+                    }
                     for (let j = 0; j < tempRow.length; j++) {
                         if (tempRow[j] > 0 && j < tempRow?.length - 1) {
                             if (tempRow[j] === tempRow[j + 1]) {
                                 tempRow[j] = tempRow[j] * 2
                                 tempRow[j + 1] = 0
                                 scoreHandler(tempRow[j])
+                                tempMerge[j][i].isMerging = 1
+                                showPopupsWithDelay(tempRow[j])
                             }
                         }
                     }
@@ -168,12 +229,19 @@ const Game = (props: GameProps) => {
                 }
                 if (d === direction.DOWN) {
                     const tempRow = [...Array.from({ length: col?.length - nonZero?.length }, () => 0), ...nonZero]
+                    // check if row is not changed than add new tile
+                    if (JSON.stringify(col) !== JSON.stringify(tempRow)) {
+                        addNew = true
+                    }
                     for (let j = tempRow.length - 1; j >= 0; j--) {
                         if (tempRow[j] > 0 && j > 0) {
                             if (tempRow[j] === tempRow[j - 1]) {
                                 tempRow[j] = tempRow[j] * 2
                                 tempRow[j - 1] = 0
                                 scoreHandler(tempRow[j])
+                                tempMerge[j][i].isMerging = 1
+                                showPopupsWithDelay(tempRow[j])
+
                             }
                         }
                     }
@@ -182,17 +250,24 @@ const Game = (props: GameProps) => {
                 }
                 temp.forEach((row: number[], index: number) => row[i] = newRow[index]);
             }
-            setMatirx(clone(addTile(temp)))
+            if (addNew) {
+                setMatirx(clone(addTile(temp)))
+            } else {
+                setMatirx(clone(temp))
+            }
+            // setMatirxMarging(clone(tempMerge))
         } else {
             Alert.alert("Invalid move")
         }
 
-    }
+    }, [matrix, matrixMarging])
 
     const pan = Gesture.Pan().minDistance(1)
         .onStart((event) => {
         })
         .onEnd((event) => {
+            lastStateMatrixRef.current = matrix
+            lastScoreRef.current = { highScore: highScore, score: score }
             const angleRad = Math.atan2(event.translationY, event.translationX);
             const angleDeg = (angleRad * 180) / Math.PI;
             const normalizeAngle = (angleDeg + 360) % 360
@@ -223,17 +298,16 @@ const Game = (props: GameProps) => {
             const temp = [...matrix];
             temp[i1.x][i1.y] = getNumber()
             temp[i2.x][i2.y] = getNumber()
-            if (i1.x === i2.x || i1.y === i2.y) {
-                // Alert.alert("Same value useLayoutEffect", `${i1.x} | ${i2.x} | ${i1.y} |  ${i2.y}`)
-            }
             setMatirx([...temp])
             firstTimeRef.current = false
         }
     }, []);
 
-    useEffect(() => {
-        console.log("matrix", matrix)
-    }, [matrix])
+    // useEffect(() => {
+    //     setTimeout(() => {
+    //         setMatirxMarging(Array.from({ length: n }, () => Array(n).fill(animObj)));
+    //     }, 0)
+    // }, [matrix])
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -278,7 +352,7 @@ const Game = (props: GameProps) => {
                 <View style={styles.container}>
                     <View style={styles.mainContainer}>
                         {matrix.map((row, i) => <View style={[styles.row,]} key={`row_${i}`}>
-                            {row.map((col: any, j) => <Cell n={n} i={i} j={j} col={col} key={`col_${i}_${j}`} />)}
+                            {row.map((col: any, j) => <Cell animObj={matrixMarging[i][j]} n={n} i={i} j={j} col={col} key={`col_${i}_${j}`} />)}
                         </View>)}
                     </View>
                 </View>
